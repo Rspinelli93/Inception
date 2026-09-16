@@ -1,0 +1,127 @@
+services:
+  mariadb:
+    build:
+      context: ./requirements/mariadb
+
+    # Image name must match service name.
+    image: mariadb
+    container_name: mariadb
+
+    restart: always
+
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+
+    # Password files are mounted under /run/secrets/.
+    secrets:
+      - db_password
+      - db_root_password
+
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+    networks:
+      - inception
+
+  wordpress:
+    build:
+      context: ./requirements/wordpress
+
+    image: wordpress
+    container_name: wordpress
+
+    restart: always
+
+    # Starts MariaDB before WordPress.
+    # This does NOT guarantee the DB is ready yet.
+    depends_on:
+      - mariadb
+
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME}
+
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+
+      WP_ADMIN_USER: ${WP_ADMIN_USER}
+      WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL}
+
+      WP_USER: ${WP_USER}
+      WP_USER_EMAIL: ${WP_USER_EMAIL}
+
+    secrets:
+      - db_password
+      - wp_admin_password
+      - wp_user_password
+
+    volumes:
+      - wordpress-data:/var/www/html
+
+    networks:
+      - inception
+
+  nginx:
+    build:
+      context: ./requirements/nginx
+
+      # Build-time value used when creating the certificate.
+      args:
+        DOMAIN_NAME: ${DOMAIN_NAME}
+
+    image: nginx
+    container_name: nginx
+
+    restart: always
+
+    depends_on:
+      - wordpress
+
+    # Only HTTPS is exposed to the host.
+    ports:
+      - "443:443"
+
+    # NGINX only needs to read WordPress files.
+    volumes:
+      - wordpress-data:/var/www/html:ro
+
+    networks:
+      - inception
+
+
+# Private network used by all three services.
+networks:
+  inception:
+    driver: bridge
+
+
+volumes:
+  mariadb-data:
+    driver: local
+    driver_opts:
+      # Named Docker volume backed by the required host directory.
+      type: none
+      o: bind
+      device: /home/${USER}/data/mariadb
+
+  wordpress-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/${USER}/data/wordpress
+
+
+# Docker mounts these as files under /run/secrets/.
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+  db_root_password:
+    file: ./secrets/db_root_password.txt
+
+  wp_admin_password:
+    file: ./secrets/wp_admin_password.txt
+
+  wp_user_password:
+    file: ./secrets/wp_user_password.txt
